@@ -1,25 +1,12 @@
-import { useEffect, useState } from 'react'
-import { supabase } from '../supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Link } from 'react-router-dom'
 import { Plus, Search, CheckCircle, MessageSquare, List } from 'lucide-react'
 
 export default function Dashboard() {
-    const [user, setUser] = useState(null)
+    const { user } = useAuth()
     const navigate = useNavigate()
 
-    useEffect(() => {
-        const getSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession()
-            if (!session) {
-                navigate('/login')
-            } else {
-                setUser(session.user)
-            }
-        }
-        getSession()
-    }, [navigate])
-
-    if (!user) return <div className="text-center" style={{ marginTop: '4rem' }}>Loading Dashboard...</div>
+    if (!user) return null // Handled by ProtectedRoute
 
     return (
         <div className="fade-in">

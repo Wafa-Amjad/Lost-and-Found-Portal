@@ -1,12 +1,13 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { useState, useEffect, useRef } from 'react'
+import { useAuth } from '../contexts/AuthContext'
 import { Sun, Moon, User, LogOut, LayoutDashboard, Bell, Tag, MapPin, X } from 'lucide-react'
 import { toast } from 'react-toastify'
 import logo from '../logo.png'
 
 export default function Layout({ children }) {
-    const [user, setUser] = useState(null)
+    const { user, signOut } = useAuth()
     const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark')
     const [notifications, setNotifications] = useState([])
     const [showNotifications, setShowNotifications] = useState(false)
@@ -16,22 +17,10 @@ export default function Layout({ children }) {
     const dropdownRef = useRef(null)
 
     useEffect(() => {
-        const getSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession()
-            setUser(session?.user || null)
-        }
-        getSession()
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user || null)
-        })
-
         // Request browser notification permission
         if ("Notification" in window && Notification.permission === "default") {
             Notification.requestPermission();
         }
-
-        return () => subscription.unsubscribe()
     }, [])
 
     useEffect(() => {
@@ -122,7 +111,7 @@ export default function Layout({ children }) {
     }, [])
 
     const handleLogout = async () => {
-        await supabase.auth.signOut()
+        await signOut()
         navigate('/login')
     }
 

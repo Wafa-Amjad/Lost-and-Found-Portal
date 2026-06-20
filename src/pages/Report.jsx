@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabase'
 import { useNavigate, Link } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import { Upload, MapPin, Tag, Info, Phone, ArrowLeft, Send, X } from 'lucide-react'
 
 export default function Report() {
@@ -13,6 +14,7 @@ export default function Report() {
     const [image, setImage] = useState(null)
     const [loading, setLoading] = useState(false)
     const [message, setMessage] = useState('')
+    const { user } = useAuth()
     const navigate = useNavigate()
     const previewUrl = useMemo(() => {
         if (!image) return null
@@ -51,10 +53,6 @@ export default function Report() {
         setMessage('');
 
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-
             if (!user) {
                 navigate('/login');
                 return;

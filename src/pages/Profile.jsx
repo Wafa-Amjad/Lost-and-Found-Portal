@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 import { useNavigate, Link } from 'react-router-dom'
-import { Mail, GraduationCap, School, Calendar, Edit2, Save, X, Trash2, ArrowLeft, Check } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import { Mail, GraduationCap, School, Calendar, Edit2, Save, X, Trash2, ArrowLeft, Check, MapPin, Search, ChevronDown, ChevronUp } from 'lucide-react'
 import { PRESET_AVATARS } from '../constants/avatars'
 
 export default function Profile() {
-    const [user, setUser] = useState(null)
+    const { user } = useAuth()
     const [isEditing, setIsEditing] = useState(false)
     const [loading, setLoading] = useState(true)
     const [updating, setUpdating] = useState(false)
@@ -14,17 +15,14 @@ export default function Profile() {
     const [sem, setSem] = useState('')
     const [dept, setDept] = useState('')
     const [avatarUrl, setAvatarUrl] = useState('')
+    const [userPosts, setUserPosts] = useState([])
+    const [postsLoading, setPostsLoading] = useState(true)
+    const [showUserPosts, setShowUserPosts] = useState(false)
     const [message, setMessage] = useState({ type: '', content: '' })
     const navigate = useNavigate()
 
     useEffect(() => {
-        const fetchUser = async () => {
-            const { data: { user } } = await supabase.auth.getUser()
-            if (!user) {
-                navigate('/login')
-                return
-            }
-            setUser(user)
+        if (user) {
             setFullName(user.user_metadata?.full_name || '')
             setRegNo(user.user_metadata?.registration_no || '')
             setSem(user.user_metadata?.semester || '')
@@ -32,8 +30,70 @@ export default function Profile() {
             setAvatarUrl(user.user_metadata?.avatar_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + user.email)
             setLoading(false)
         }
-        fetchUser()
-    }, [navigate])
+    }, [user])
+
+    useEffect(() => {
+        if (showUserPosts && user) {
+            fetchUserPosts()
+        }
+    }, [showUserPosts, user])
+
+    const fetchUserPosts = async () => {
+        if (!user) return
+        setPostsLoading(true)
+        try {
+            const [{ data: lostData }, { data: foundData }] = await Promise.all([
+                supabase.from('lost_items').select('*').eq('user_id', user.id),
+                supabase.from('found_items').select('*').eq('user_id', user.id)
+            ])
+
+            const combined = [
+                ...(lostData || []).map(item => ({ ...item, type: 'lost' })),
+                ...(foundData || []).map(item => ({ ...item, type: 'found' }))
+            ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
+            setUserPosts(combined)
+        } catch (error) {
+            console.error('Error fetching user posts:', error)
+        } finally {
+            setPostsLoading(false)
+        }
+    }
+
+    const handleDeletePost = async (postId, type, imageUrl) => {
+        const ok = window.confirm("Are you sure you want to delete this post? This action cannot be undone.")
+        if (!ok) return
+
+        try {
+            // Delete record from database using RPC
+            const { error } = await supabase.rpc('delete_user_post', {
+                post_id: postId,
+                post_type: type
+            })
+
+            if (error) throw error
+
+            // Delete image from storage if it exists
+            if (imageUrl) {
+                try {
+                    // Extract path from public URL
+                    // URL format: https://[project].supabase.co/storage/v1/object/public/lost-found-image/[user_id]/[filename]
+                    const pathParts = imageUrl.split('lost-found-image/')
+                    if (pathParts.length > 1) {
+                        const filePath = pathParts[1]
+                        await supabase.storage.from('lost-found-image').remove([filePath])
+                    }
+                } catch (storageError) {
+                    console.error('Error deleting image from storage:', storageError)
+                }
+            }
+
+            // Update local state
+            setUserPosts(prev => prev.filter(p => p.id !== postId))
+        } catch (error) {
+            alert('Error deleting post: ' + error.message)
+        }
+    }
 
     const handleUpdate = async (e) => {
         e.preventDefault()
@@ -206,6 +266,85 @@ export default function Profile() {
                         </div>
                     </div>
                 )}
+
+                <div style={{ marginTop: '4rem', paddingTop: '3rem', borderTop: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: showUserPosts ? '2rem' : '0' }}>
+                        <button
+                            onClick={() => setShowUserPosts(!showUserPosts)}
+                            className="btn btn-primary"
+                            style={{ padding: '0.75rem 2rem', gap: '1rem' }}
+                        >
+                            {showUserPosts ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                            {showUserPosts ? 'Hide Your Posts' : 'View Your Posts'}
+                        </button>
+                    </div>
+
+                    {showUserPosts && (
+                        postsLoading ? (
+                            <p style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>Loading your posts...</p>
+                        ) : userPosts.length > 0 ? (
+                            <div className="fade-in">
+                                {userPosts.map(item => (
+                                    <div key={`${item.type}-${item.id}`} className="glass-card item-card-horizontal fade-in" style={{ marginBottom: '1.5rem', position: 'relative' }}>
+                                        <div className="item-card-content">
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                                                <h2 style={{ margin: 0, color: 'var(--text-main)', fontSize: '1.5rem' }}>{item.item_name}</h2>
+                                                <button
+                                                    onClick={() => handleDeletePost(item.id, item.type, item.image_url)}
+                                                    className="btn"
+                                                    style={{ padding: '0.4rem', border: '1px solid var(--error)', color: 'var(--error)', borderRadius: '8px' }}
+                                                    title="Delete Post"
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
+                                            </div>
+
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                                                <p style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', margin: 0 }}>
+                                                    <MapPin size={18} style={{ color: item.type === 'lost' ? 'var(--error)' : 'var(--success)' }} /> {item.location}
+                                                </p>
+                                                <p style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', margin: 0 }}>
+                                                    <Calendar size={18} /> {new Date(item.created_at).toLocaleDateString()}
+                                                </p>
+                                            </div>
+
+                                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '12px', marginBottom: '1.5rem', flex: 1 }}>
+                                                <p style={{ fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.5px' }}>Description</p>
+                                                <p style={{ fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--text-main)', margin: 0 }}>{item.description}</p>
+                                            </div>
+
+                                            <div style={{ paddingTop: '1.25rem', borderTop: '1px solid var(--border)' }}>
+                                                <p style={{ fontSize: '0.75rem', fontWeight: '800', color: item.type === 'lost' ? 'var(--error)' : 'var(--success)', marginBottom: '0.5rem', letterSpacing: '0.5px' }}>
+                                                    {item.type === 'lost' ? 'CONTACT INFO' : 'CLAIM FROM'}
+                                                </p>
+                                                <p style={{ fontSize: '1rem', fontWeight: '500', color: 'var(--text-main)', margin: 0 }}>{item.contact}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="item-card-image-box">
+                                            <span className="item-badge" style={{ background: item.type === 'lost' ? 'var(--error)' : 'var(--success)' }}>
+                                                {item.type.toUpperCase()}
+                                            </span>
+                                            {item.image_url ? (
+                                                <img src={item.image_url} alt={item.item_name} className="item-card-image" />
+                                            ) : (
+                                                <div style={{ textAlign: 'center', opacity: 0.3 }}>
+                                                    <Search size={48} style={{ marginBottom: '0.5rem' }} />
+                                                    <p style={{ fontSize: '0.8rem', margin: 0 }}>No Image</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '2rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', marginTop: '2rem' }}>
+                                <p style={{ color: 'var(--text-muted)', margin: 0 }}>You haven't posted any reports yet.</p>
+                                <Link to="/report" className="link" style={{ display: 'inline-block', marginTop: '1rem' }}>Create your first report →</Link>
+                            </div>
+                        )
+                    )}
+                </div>
 
                 <div style={{ marginTop: '4rem', paddingTop: '3rem', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
                     <h3 style={{ color: 'var(--error)', marginBottom: '0.5rem' }}>Danger Zone</h3>
